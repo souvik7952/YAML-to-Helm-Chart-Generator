@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes YAML to Helm Chart Generator</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-theme">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1f2937;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --accent: #6366f1;
+            --accent-hover: #4f46e5;
+            --border-color: #374151;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --code-bg: #0d1117;
+            --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        .light-theme {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #f1f5f9;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --accent: #4f46e5;
+            --accent-hover: #3730a3;
+            --border-color: #e2e8f0;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --code-bg: #f8fafc;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            transition: background-color 0.2s ease, color 0.2s ease;
+            font-family: var(--font-sans);
+        }
+
+        .custom-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .interactive-element {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+
+        .interactive-element:hover {
+            border-color: var(--accent);
+        }
+
+        .text-muted {
+            color: var(--text-muted);
+        }
+
+        .accent-border {
+            border-color: var(--border-color);
+        }
+
+        .pane-container {
+            display: flex;
+            height: calc(100vh - 4rem);
+            overflow: hidden;
+        }
+
+        .sidebar-pane {
+            width: 22rem;
+            min-width: 18rem;
+            max-width: 35rem;
+            flex-shrink: 0;
+        }
+
+        .main-workspace {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .resizer {
+            width: 4px;
+            cursor: col-resize;
+            background-color: var(--border-color);
+            transition: background-color 0.2s;
+        }
+
+        .resizer:hover, .resizer:active {
+            background-color: var(--accent);
+        }
+
+        .code-container {
+            position: relative;
+            font-family: var(--font-mono);
+            overflow: auto;
+            height: 100%;
+            background-color: var(--code-bg);
+        }
+
+        pre {
+            margin: 0 !important;
+            padding: 1.25rem !important;
+            background: transparent !important;
+        }
+
+        .glass-accent {
+            background: rgba(99, 102, 241, 0.03);
+            border-color: var(--border-color);
+        }
+
+        .light-theme .glass-accent {
+            background: rgba(79, 70, 229, 0.02);
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        .line-wrapper {
+            transition: background-color 0.15s ease;
+        }
+        .line-wrapper:hover {
+            background-color: rgba(99, 102, 241, 0.06);
+        }
+        .light-theme .line-wrapper:hover {
+            background-color: rgba(79, 70, 229, 0.04);
+        }
+
+        .line-number {
+            min-width: 3.5rem;
+            border-right: 1px solid var(--border-color);
+            user-select: none;
+            opacity: 0.4;
+        }
+
+        .text-2xs { font-size: 0.75rem; }
+        .text-3xs { font-size: 0.675rem; tracking: 0.05em; }
+
+        /* Smooth tab styling transition */
+        .workspace-tab {
+            position: relative;
+            transition: all 0.2s ease;
+        }
+        .workspace-tab::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background-color: var(--accent);
+            transform: scaleX(0);
+            transition: transform 0.2s ease;
+        }
+        .workspace-tab.active-tab::after {
+            transform: scaleX(1);
+        }
+
+        /* Prism Code Aesthetics Customization */
+        .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6272a4; font-style: italic; }
+        .token.punctuation { color: #f8f8f2; }
+        .token.property, .token.tag, .token.constant, .token.symbol, .token.deleted { color: #ff79c6; }
+        .token.boolean, .token.number { color: #bd93f9; }
+        .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #50fa7b; }
+        .token.operator, .token.entity, .token.url { color: #f8f8f2; }
+        .token.atrule, .token.attr-value, .token.keyword { color: #8be9fd; }
+        .token.function, .token.class-name { color: #f1fa8c; }
+        .token.variable { color: #50fa7b; }
+
+        .light-theme .token.comment, .light-theme .token.prolog, .light-theme .token.doctype, .light-theme .token.cdata { color: #94a3b8; }
+        .light-theme .token.punctuation { color: #334155; }
+        .light-theme .token.property, .light-theme .token.tag, .light-theme .token.boolean, .light-theme .token.number, .light-theme .token.constant, .light-theme .token.symbol, .light-theme .token.deleted { color: #0284c7; }
+        .light-theme .token.selector, .light-theme .token.attr-name, .light-theme .token.string, .light-theme .token.char, .light-theme .token.builtin, .light-theme .token.inserted { color: #16a34a; }
+        .light-theme .token.operator, .light-theme .token.entity, .light-theme .token.url { color: #475569; }
+        .light-theme .token.atrule, .light-theme .token.attr-value, .light-theme .token.keyword { color: #ea580c; }
+        .light-theme .token.function, .light-theme .token.class-name { color: #d97706; }
+        .light-theme .token.variable { color: #ea580c; }
+    </style>
+</head>
+<body class="h-full overflow-hidden text-sm antialiased">
+
+    <header class="h-16 custom-card border-b flex items-center justify-between px-6 z-20 relative shadow-sm">
+        <div class="flex items-center space-x-3">
+            <div class="bg-indigo-600 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-sm">
+                <i class="fa-solid fa-dharmachakra text-lg"></i>
+            </div>
+            <div>
+                <h1 class="font-semibold text-sm tracking-tight text-main">Kubernetes YAML to Helm Chart Generator</h1>
+                <p class="text-3xs text-muted uppercase font-medium">Enterprise Pipeline Builder</p>
+            </div>
+        </div>
+
+        <div class="hidden lg:flex items-center space-x-6 text-2xs font-medium">
+            <div class="flex items-center space-x-2">
+                <span class="text-muted">Manifests:</span>
+                <span id="metric-manifests" class="px-1.5 py-0.5 rounded bg-indigo-500 bg-opacity-10 text-indigo-400 font-bold">0</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span class="text-muted">Resources:</span>
+                <span id="metric-resources" class="px-1.5 py-0.5 rounded bg-emerald-500 bg-opacity-10 text-emerald-400 font-bold">0</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span class="text-muted">Templates:</span>
+                <span id="metric-templates" class="px-1.5 py-0.5 rounded bg-purple-500 bg-opacity-10 text-purple-400 font-bold">0</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span class="text-muted">Issues:</span>
+                <span id="metric-alerts" class="px-1.5 py-0.5 rounded bg-rose-500 bg-opacity-10 text-rose-400 font-bold">0</span>
+            </div>
+            <div class="h-4 w-px bg-gray-700 bg-opacity-30"></div>
+            <div class="flex items-center space-x-2">
+                <span class="text-muted">Readiness Score:</span>
+                <span id="metric-score" class="font-bold text-amber-400">0%</span>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+            <button id="theme-toggle" class="w-9 h-9 rounded-lg interactive-element flex items-center justify-center transition-colors" title="Toggle Theme" aria-label="Toggle visual theme">
+                <i class="fa-solid fa-sun text-xs"></i>
+            </button>
+            <button id="btn-export-zip" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs px-4 h-9 rounded-lg shadow-sm flex items-center space-x-2 transition-all transform active:scale-98 cursor-not-allowed opacity-40" disabled>
+                <i class="fa-solid fa-file-archive text-xs"></i>
+                <span>Export Chart bundle</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="pane-container">
+        
+        <aside class="sidebar-pane custom-card border-r flex flex-col h-full" id="left-sidebar">
+            <div class="p-4 border-b accent-border">
+                <div id="drop-zone" class="border border-dashed border-gray-400 border-opacity-60 hover:border-indigo-500 rounded-xl p-5 text-center cursor-pointer transition-all glass-accent flex flex-col items-center justify-center space-y-3">
+                    <div class="w-10 h-10 rounded-full bg-indigo-500 bg-opacity-5 flex items-center justify-center text-muted">
+                        <i class="fa-solid fa-cloud-arrow-up text-lg text-indigo-400"></i>
+                    </div>
+                    <div>
+                        <p class="font-medium text-xs text-main">Drag & Drop Manifests</p>
+                        <p class="text-3xs text-muted mt-0.5">Supports multi-document K8s YAML</p>
+                    </div>
+                    <div class="flex space-x-1.5 pt-1" onclick="event.stopPropagation();">
+                        <button class="text-3xs font-semibold uppercase tracking-wider bg-indigo-600 bg-opacity-10 hover:bg-opacity-20 text-indigo-400 px-3 py-1.5 rounded transition-all" onclick="document.getElementById('file-input').click()">Files</button>
+                        <button class="text-3xs font-semibold uppercase tracking-wider bg-gray-700 bg-opacity-20 hover:bg-opacity-40 text-muted px-3 py-1.5 rounded transition-all" onclick="document.getElementById('folder-input').click()">Folder</button>
+                    </div>
+                    <input type="file" id="file-input" class="hidden" multiple accept=".yaml,.yml">
+                    <input type="file" id="folder-input" class="hidden" webkitdirectory directory multiple>
+                </div>
+            </div>
+
+            <div class="px-4 h-9 bg-black bg-opacity-5 font-semibold tracking-wider text-3xs uppercase flex items-center justify-between text-muted border-b accent-border">
+                <span>Chart Blueprints</span>
+                <div class="flex space-x-3">
+                    <button id="btn-collapse-explorer" title="Clear Canvas" class="hover:text-indigo-400 transition-colors"><i class="fa-solid fa-trash-can"></i></button>
+                    <button id="btn-refresh-explorer" title="Rebuild Schema" class="hover:text-indigo-400 transition-colors"><i class="fa-solid fa-rotate"></i></button>
+                </div>
+            </div>
+
+            <div class="p-3 border-b accent-border">
+                <div class="relative flex items-center">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 text-muted text-xs opacity-60"></i>
+                    <input type="text" id="explorer-search" placeholder="Search files..." class="w-full pl-8 pr-3 py-1.5 bg-black bg-opacity-10 border accent-border rounded-lg text-2xs focus:outline-none focus:border-indigo-500 transition-colors" style="color: var(--text-main);">
+                </div>
+            </div>
+
+            <div class="flex-grow overflow-y-auto p-3 text-2xs" id="file-tree-container">
+                <div class="text-muted p-6 text-center flex flex-col items-center justify-center h-full space-y-3">
+                    <i class="fa-solid fa-folder-open text-2xl opacity-20 text-indigo-400"></i>
+                    <div class="space-y-0.5">
+                        <p class="text-xs font-medium text-main">Workspace is Empty</p>
+                        <p class="text-3xs opacity-80 max-w-[15rem] mx-auto">Upload valid Kubernetes configuration manifests to output production Helm charts.</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <div class="resizer" id="sidebar-resizer"></div>
+
+        <main class="main-workspace">
+            
+            <div class="h-11 border-b accent-border custom-card flex items-center justify-between px-4 overflow-x-auto flex-shrink-0">
+                <div class="flex items-center space-x-1 h-full overflow-x-auto" id="tab-carousel">
+                    <button class="workspace-tab active-tab px-4 h-full flex items-center space-x-2 text-2xs font-medium text-main bg-black bg-opacity-10" data-tab="original-yaml">
+                        <i class="fa-solid fa-file-code text-indigo-400 text-xs"></i>
+                        <span>Original Input Source</span>
+                    </button>
+                </div>
+
+                <div class="flex items-center space-x-1 flex-shrink-0 ml-4">
+                    <button id="btn-search-code" class="w-7 h-7 rounded-md hover:bg-gray-700 hover:bg-opacity-30 hover:text-white text-muted flex items-center justify-center transition-colors" title="Find Text (Ctrl+F)"><i class="fa-solid fa-magnifying-glass text-2xs"></i></button>
+                    <button id="btn-copy-code" class="w-7 h-7 rounded-md hover:bg-gray-700 hover:bg-opacity-30 hover:text-white text-muted flex items-center justify-center transition-colors" title="Copy to Clipboard"><i class="fa-solid fa-copy text-2xs"></i></button>
+                    <button id="btn-fullscreen" class="w-7 h-7 rounded-md hover:bg-gray-700 hover:bg-opacity-30 hover:text-white text-muted flex items-center justify-center transition-colors" title="Toggle Canvas View"><i class="fa-solid fa-expand text-2xs"></i></button>
+                </div>
+            </div>
+
+            <div class="flex-grow flex flex-col lg:flex-row overflow-hidden relative">
+                
+                <div class="flex-grow h-full overflow-hidden relative flex flex-col bg-opacity-20 bg-black">
+                    <div id="code-search-bar" class="absolute top-3 right-4 p-2 custom-card rounded-xl border flex items-center space-x-2 z-10 hidden shadow-xl max-w-sm transition-all animate-fade-in">
+                        <input type="text" id="code-search-input" placeholder="Find text..." class="bg-black bg-opacity-20 border accent-border rounded-lg px-2.5 py-1 text-2xs focus:outline-none focus:border-indigo-500 w-36" style="color: var(--text-main);">
+                        <span id="code-search-count" class="text-3xs text-muted font-mono font-medium">0/0</span>
+                        <div class="flex items-center space-x-0.5">
+                            <button id="btn-code-search-prev" class="w-5 h-5 rounded hover:bg-gray-700 flex items-center justify-center text-muted hover:text-current transition-colors"><i class="fa-solid fa-chevron-up text-3xs"></i></button>
+                            <button id="btn-code-search-next" class="w-5 h-5 rounded hover:bg-gray-700 flex items-center justify-center text-muted hover:text-current transition-colors"><i class="fa-solid fa-chevron-down text-3xs"></i></button>
+                            <button id="btn-code-search-close" class="w-5 h-5 rounded hover:bg-gray-700 flex items-center justify-center text-muted hover:text-current transition-colors"><i class="fa-solid fa-xmark text-3xs"></i></button>
+                        </div>
+                    </div>
+
+                    <div class="code-container flex-grow text-xs leading-relaxed" id="editor-view-pane">
+                        <pre><code class="language-yaml" id="code-renderer"><div class="line-wrapper flex w-full"><span class="line-number text-right pr-3 font-mono bg-black bg-opacity-5">1</span><span class="line-content pl-3 text-gray-500 font-mono"># Welcome to the Kubernetes YAML to Helm Chart Generator Workspace.</span></div><div class="line-wrapper flex w-full"><span class="line-number text-right pr-3 font-mono bg-black bg-opacity-5">2</span><span class="line-content pl-3 text-gray-500 font-mono"># Import infrastructure manifests using the left container panel to initialize architecture mapping rules.</span></div></code></pre>
+                    </div>
+                </div>
+
+                <div class="w-full lg:w-96 custom-card border-t lg:border-t-0 lg:border-l flex flex-col flex-shrink-0 h-2/5 lg:h-full overflow-hidden shadow-sm" id="diagnostics-panel">
+                    <div class="px-4 h-11 border-b accent-border font-semibold tracking-wider text-3xs uppercase text-muted flex items-center justify-between bg-black bg-opacity-5">
+                        <span>Best Practice Engine & Telemetry</span>
+                        <span class="bg-indigo-500 bg-opacity-10 text-indigo-400 text-3xs px-2 py-0.5 rounded-md font-mono font-medium">V1 Core</span>
+                    </div>
+
+                    <div class="p-3 border-b accent-border grid grid-cols-2 gap-2 bg-black bg-opacity-10">
+                        <div class="p-2.5 bg-black bg-opacity-20 rounded-lg border accent-border flex flex-col justify-between">
+                            <span class="text-3xs text-muted font-semibold uppercase tracking-wider">Quality Core</span>
+                            <span id="score-quality" class="text-base font-bold text-indigo-400 mt-1">--</span>
+                        </div>
+                        <div class="p-2.5 bg-black bg-opacity-20 rounded-lg border accent-border flex flex-col justify-between">
+                            <span class="text-3xs text-muted font-semibold uppercase tracking-wider">Variables Mapping</span>
+                            <span id="score-param" class="text-base font-bold text-purple-400 mt-1">--</span>
+                        </div>
+                        <div class="p-2.5 bg-black bg-opacity-20 rounded-lg border accent-border flex flex-col justify-between">
+                            <span class="text-3xs text-muted font-semibold uppercase tracking-wider">Maintainability</span>
+                            <span id="score-maintain" class="text-base font-bold text-emerald-400 mt-1">--</span>
+                        </div>
+                        <div class="p-2.5 bg-black bg-opacity-20 rounded-lg border accent-border flex flex-col justify-between">
+                            <span class="text-3xs text-muted font-semibold uppercase tracking-wider">Prod Readiness</span>
+                            <span id="score-readiness" class="text-base font-bold text-amber-400 mt-1">--</span>
+                        </div>
+                    </div>
+
+                    <div class="px-3 py-1.5 border-b accent-border flex items-center space-x-1 text-3xs font-semibold uppercase tracking-wider">
+                        <button class="px-2.5 py-1 rounded-md bg-indigo-600 text-white shadow-sm transition-all" id="filter-all-issues">All Rules</button>
+                        <button class="px-2.5 py-1 rounded-md bg-gray-700 bg-opacity-20 text-muted hover:bg-opacity-40 transition-all" id="filter-errors-issues">Errors (<span id="count-err">0</span>)</button>
+                        <button class="px-2.5 py-1 rounded-md bg-gray-700 bg-opacity-20 text-muted hover:bg-opacity-40 transition-all" id="filter-warns-issues">Warnings (<span id="count-warn">0</span>)</button>
+                    </div>
+
+                    <div class="flex-grow overflow-y-auto p-3 space-y-2" id="diagnostic-findings-list">
+                        <div class="text-muted text-center py-10 text-2xs flex flex-col items-center justify-center h-full space-y-2">
+                            <i class="fa-solid fa-shield-halved text-2xl opacity-20 text-indigo-400"></i>
+                            <p class="opacity-80">No active system violations found matching baseline profiles.</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <div id="toast-container" class="fixed bottom-5 right-5 space-y-2 z-50 pointer-events-none"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markdown.min.js"></script>
+
+    <script>
+        const State = {
+            theme: 'dark',
+            uploadedFilesRaw: [], 
+            parsedManifests: [], 
+            generatedChart: {},  
+            activeFilePath: 'original-yaml',
+            metrics: {
+                manifests: 0,
+                resources: 0,
+                templates: 0,
+                alerts: 0,
+                score: 100
+            },
+            filteredFindings: 'all',
+            searchMatches: [],
+            currentMatchIndex: -1
+        };
+
+        const DOM = {
+            themeToggle: document.getElementById('theme-toggle'),
+            dropZone: document.getElementById('drop-zone'),
+            fileInput: document.getElementById('file-input'),
+            folderInput: document.getElementById('folder-input'),
+            btnExportZip: document.getElementById('btn-export-zip'),
+            metricManifests: document.getElementById('metric-manifests'),
+            metricResources: document.getElementById('metric-resources'),
+            metricTemplates: document.getElementById('metric-templates'),
+            metricAlerts: document.getElementById('metric-alerts'),
+            metricScore: document.getElementById('metric-score'),
+            fileTreeContainer: document.getElementById('file-tree-container'),
+            tabCarousel: document.getElementById('tab-carousel'),
+            codeRenderer: document.getElementById('code-renderer'),
+            btnCopyCode: document.getElementById('btn-copy-code'),
+            btnSearchCode: document.getElementById('btn-search-code'),
+            btnFullscreen: document.getElementById('btn-fullscreen'),
+            codeSearchBar: document.getElementById('code-search-bar'),
+            codeSearchInput: document.getElementById('code-search-input'),
+            codeSearchCount: document.getElementById('code-search-count'),
+            btnCodeSearchPrev: document.getElementById('btn-code-search-prev'),
+            btnCodeSearchNext: document.getElementById('btn-code-search-next'),
+            btnCodeSearchClose: document.getElementById('btn-code-search-close'),
+            explorerSearch: document.getElementById('explorer-search'),
+            btnCollapseExplorer: document.getElementById('btn-collapse-explorer'),
+            btnRefreshExplorer: document.getElementById('btn-refresh-explorer'),
+            scoreQuality: document.getElementById('score-quality'),
+            scoreParam: document.getElementById('score-param'),
+            scoreMaintain: document.getElementById('score-maintain'),
+            scoreReadiness: document.getElementById('score-readiness'),
+            diagnosticFindingsList: document.getElementById('diagnostic-findings-list'),
+            countErr: document.getElementById('count-err'),
+            countWarn: document.getElementById('count-warn'),
+            filterAll: document.getElementById('filter-all-issues'),
+            filterErrors: document.getElementById('filter-errors-issues'),
+            filterWarns: document.getElementById('filter-warns-issues'),
+            sidebarResizer: document.getElementById('sidebar-resizer'),
+            leftSidebar: document.getElementById('left-sidebar')
+        };
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `p-3 rounded-xl shadow-xl text-white flex items-center space-x-2.5 text-2xs font-medium transition-all transform duration-300 translate-y-4 opacity-0 pointer-events-auto max-w-sm border border-white border-opacity-10`;
+            
+            let icon = 'fa-check-circle';
+            let bg = 'bg-gray-900 text-emerald-400';
+            if (type === 'warning') { icon = 'fa-exclamation-triangle'; bg = 'bg-gray-900 text-amber-400'; }
+            if (type === 'error') { icon = 'fa-circle-xmark'; bg = 'bg-gray-900 text-rose-400'; }
+            
+            toast.classList.add(...bg.split(' '));
+            toast.innerHTML = `<i class="fa-solid ${icon} text-sm"></i> <span class="flex-grow text-gray-200">${message}</span>`;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('translate-y-4', 'opacity-0');
+            }, 50);
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-4', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initThemes();
+            registerDragAndDrop();
+            registerWorkspaceResizer();
+            registerEventHandlers();
+        });
+
+        function initThemes() {
+            const savedTheme = localStorage.getItem('k8s-helm-theme') || 'dark';
+            applyTheme(savedTheme);
+        }
+
+        function applyTheme(theme) {
+            State.theme = theme;
+            localStorage.setItem('k8s-helm-theme', theme);
+            const icon = DOM.themeToggle.querySelector('i');
+            
+            if (theme === 'dark') {
+                document.documentElement.classList.remove('light-theme');
+                icon.className = 'fa-solid fa-sun';
+            } else {
+                document.documentElement.classList.add('light-theme');
+                icon.className = 'fa-solid fa-moon';
+            }
+        }
+
+        DOM.themeToggle.addEventListener('click', () => {
+            applyTheme(State.theme === 'dark' ? 'light' : 'dark');
+        });
+
+        function registerWorkspaceResizer() {
+            let isResizing = false;
+            
+            DOM.sidebarResizer.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                let offsetLeft = e.clientX;
+                if (offsetLeft < 240) offsetLeft = 240;
+                if (offsetLeft > 550) offsetLeft = 550;
+                DOM.leftSidebar.style.width = `${offsetLeft}px`;
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (!isResizing) return;
+                isResizing = false;
+                document.body.style.cursor = 'default';
+                document.body.style.userSelect = 'auto';
+            });
+        }
+
+        function registerDragAndDrop() {
+            DOM.dropZone.addEventListener('click', () => {
+                DOM.fileInput.click();
+            });
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                DOM.dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    DOM.dropZone.classList.add('border-indigo-500', 'bg-indigo-500', 'bg-opacity-5');
+                }, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                DOM.dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    DOM.dropZone.classList.remove('border-indigo-500', 'bg-indigo-500', 'bg-opacity-5');
+                }, false);
+            });
+
+            DOM.dropZone.addEventListener('drop', (e) => {
+                const dt = e.dataTransfer;
+                if (dt.items) {
+                    handleDataTransferItems(dt.items);
+                } else {
+                    handleIncomingFiles(dt.files);
+                }
+            });
+
+            DOM.fileInput.addEventListener('change', (e) => {
+                handleIncomingFiles(e.target.files);
+            });
+
+            DOM.folderInput.addEventListener('change', (e) => {
+                handleIncomingFiles(e.target.files);
+            });
+        }
+
+        function handleDataTransferItems(items) {
+            let fileLoadPromises = [];
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i].webkitGetAsEntry();
+                if (item) {
+                    traverseFileTreeEntry(item, "", fileLoadPromises);
+                }
+            }
+            Promise.all(fileLoadPromises).then(() => {
+                processUploadedManifests();
+            });
+        }
+
+        function traverseFileTreeEntry(entry, path, promises) {
+            if (entry.isFile) {
+                if (entry.name.endsWith('.yaml') || entry.name.endsWith('.yml')) {
+                    const promise = new Promise((resolve) => {
+                        entry.file((file) => {
+                            const reader = new FileReader();
+                            reader.onload = (e) => {
+                                State.uploadedFilesRaw.push({ name: path + entry.name, content: e.target.result });
+                                resolve();
+                            };
+                            reader.readAsText(file);
+                        });
+                    });
+                    promises.push(promise);
+                }
+            } else if (entry.isDirectory) {
+                const dirReader = entry.createReader();
+                const readAllEntries = () => {
+                    const promise = new Promise((resolve) => {
+                        dirReader.readEntries((entries) => {
+                            if (entries.length === 0) {
+                                resolve();
+                                return;
+                            }
+                            let subPromises = [];
+                            for (let i = 0; i < entries.length; i++) {
+                                traverseFileTreeEntry(entries[i], path + entry.name + "/", subPromises);
+                            }
+                            Promise.all(subPromises).then(() => {
+                                readAllEntries().then(() => resolve());
+                            });
+                        });
+                    });
+                    promises.push(promise);
+                };
+                readAllEntries();
+            }
+        }
+
+        function handleIncomingFiles(files) {
+            if (!files.length) return;
+            let fileLoadPromises = [];
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                if (!file.name.endsWith('.yaml') && !file.name.endsWith('.yml')) continue;
+                const promise = new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        resolve({ name: file.name, content: e.target.result });
+                    };
+                    reader.readAsText(file);
+                });
+                fileLoadPromises.push(promise);
+            }
+
+            Promise.all(fileLoadPromises).then(loadedFiles => {
+                State.uploadedFilesRaw = [...State.uploadedFilesRaw, ...loadedFiles];
+                processUploadedManifests();
+            });
+        }
+
+        function processUploadedManifests() {
+            let aggregatedYamlText = "";
+            let newParsedDocuments = [];
+
+            State.uploadedFilesRaw.forEach(file => {
+                aggregatedYamlText += `\n---\n# Source: ${file.name}\n${file.content}`;
+                try {
+                    const parsed = jsyaml.loadAll(file.content);
+                    parsed.forEach(doc => {
+                        if (doc && doc.kind) {
+                            newParsedDocuments.push(doc);
+                        }
+                    });
+                } catch (err) {
+                    showToast(`Error structural analysis inside ${file.name}: ${err.message}`, 'error');
+                }
+            });
+
+            if (newParsedDocuments.length === 0) {
+                showToast("No configuration entities detected.", "warning");
+                return;
+            }
+
+            State.parsedManifests = newParsedDocuments;
+            State.generatedChart['original-yaml'] = aggregatedYamlText.trim();
+            
+            executeHelmGenerationEngine();
+            showToast(`Loaded ${State.parsedManifests.length} architecture layers to engine pipeline.`);
+        }
+
+        function executeHelmGenerationEngine() {
+            const chartData = {};
+            const valuesData = {
+                global: {
+                    environment: "production",
+                    namespace: "default"
+                }
+            };
+            
+            let chartName = "enterprise-application";
+            const primaryDeployment = State.parsedManifests.find(d => d.kind === 'Deployment');
+            if (primaryDeployment && primaryDeployment.metadata && primaryDeployment.metadata.name) {
+                chartName = primaryDeployment.metadata.name.toLowerCase().replace(/[^a-z0-9-]/g, '');
+            }
+
+            chartData['Chart.yaml'] = jsyaml.dump({
+                apiVersion: 'v2',
+                name: chartName,
+                description: 'A production-grade cloud-native Helm Chart generated via automated workspace processing rules.',
+                type: 'application',
+                version: '0.1.0',
+                appVersion: '1.0.0'
+            });
+
+            chartData['.helmignore'] = `# Helm Architecture Ignore Settings\n.git\n.gitignore\n.helmignore\nREADME.md\nLICENSE\n`;
+            
+            let diagnostics = runTelemetryValidationRules(State.parsedManifests);
+            
+            State.parsedManifests.forEach((doc, idx) => {
+                const kind = doc.kind;
+                const resourceName = doc.metadata?.name || `resource-${idx}`;
+                const baseFileName = `${kind.toLowerCase()}-${resourceName}.yaml`;
+                const templatePath = `templates/${baseFileName}`;
+                
+                let parameterizedDoc = JSON.parse(JSON.stringify(doc));
+                extractParameterizationProfiles(kind, resourceName, parameterizedDoc, valuesData);
+                
+                let yamlString = jsyaml.dump(parameterizedDoc, { noRefs: true, lineWidth: 120 });
+                yamlString = postProcessTemplateBindings(yamlString);
+                
+                chartData[templatePath] = yamlString;
+            });
+
+            chartData['values.yaml'] = `# Production Baseline Value Maps\n${jsyaml.dump(valuesData)}`;
+            
+            let devValues = JSON.parse(JSON.stringify(valuesData));
+            optimizeEnvironmentOverrides(devValues, 'development', 1);
+            chartData['values-dev.yaml'] = `# Development Stage Variable Profile Overrides\n${jsyaml.dump(devValues)}`;
+
+            let uatValues = JSON.parse(JSON.stringify(valuesData));
+            optimizeEnvironmentOverrides(uatValues, 'uat', 2);
+            chartData['values-uat.yaml'] = `# UAT Testing Stage Variable Profile Overrides\n${jsyaml.dump(uatValues)}`;
+
+            let prodValues = JSON.parse(JSON.stringify(valuesData));
+            optimizeEnvironmentOverrides(prodValues, 'production', 3);
+            chartData['values-prod.yaml'] = `# Production Critical Scope Specific Parameters\n${jsyaml.dump(prodValues)}`;
+
+            chartData['README.md'] = `# Helm Chart Blueprint: ${chartName}\n\nGenerated dynamically using the cloud-native browser parsing validation suite.\n\n## Configurations Matrix\nInstalls matching infrastructure elements into target runtime layers.\n\n\`\`\`bash\nhelm install ${chartName} ./ -f values-prod.yaml\n\`\`\``;
+
+            const originalYamlBackup = State.generatedChart['original-yaml'];
+            State.generatedChart = {
+                'original-yaml': originalYamlBackup,
+                ...chartData
+            };
+
+            calculatePerformanceMetrics(diagnostics, valuesData);
+            renderFileTree();
+            updateWorkspaceTabs();
+            renderCurrentWorkspaceCode();
+            renderDiagnosticsConsole(diagnostics);
+
+            DOM.btnExportZip.disabled = false;
+            DOM.btnExportZip.classList.remove('opacity-40', 'cursor-not-allowed');
+        }
+
+        function extractParameterizationProfiles(kind, name, doc, values) {
+            const scopeKey = `${kind.toLowerCase()}_${name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            
+            if (doc.metadata && doc.metadata.namespace) {
+                values.global.namespace = doc.metadata.namespace;
+                doc.metadata.namespace = `[[ .Values.global.namespace | default .Release.Namespace ]]`;
+            }
+
+            if (kind === 'Deployment' || kind === 'StatefulSet' || kind === 'DaemonSet') {
+                if (!values[scopeKey]) values[scopeKey] = {};
+                if (doc.spec) {
+                    if (doc.spec.replicas !== undefined) {
+                        values[scopeKey].replicaCount = doc.spec.replicas;
+                        doc.spec.replicas = `[[ .Values.${scopeKey}.replicaCount ]]`;
+                    }
+                    
+                    if (doc.spec.template?.spec?.containers) {
+                        values[scopeKey].containers = {};
+                        doc.spec.template.spec.containers.forEach((c) => {
+                            if (!c.name) return;
+                            const cKey = c.name.replace(/[^a-zA-Z0-9]/g, '_');
+                            values[scopeKey].containers[cKey] = {};
+                            
+                            if (c.image) {
+                                const splitIdx = c.image.indexOf(':');
+                                if (splitIdx !== -1) {
+                                    values[scopeKey].containers[cKey].repository = c.image.substring(0, splitIdx);
+                                    values[scopeKey].containers[cKey].tag = c.image.substring(splitIdx + 1);
+                                } else {
+                                    values[scopeKey].containers[cKey].repository = c.image;
+                                    values[scopeKey].containers[cKey].tag = 'latest';
+                                }
+                                c.image = `[[ .Values.${scopeKey}.containers.${cKey}.repository ]]:[[ .Values.${scopeKey}.containers.${cKey}.tag ]]`;
+                            }
+                            
+                            if (c.resources) {
+                                values[scopeKey].containers[cKey].resources = JSON.parse(JSON.stringify(c.resources));
+                                c.resources = {
+                                    limits: {
+                                        cpu: c.resources.limits?.cpu ? `[[ .Values.${scopeKey}.containers.${cKey}.resources.limits.cpu ]]` : undefined,
+                                        memory: c.resources.limits?.memory ? `[[ .Values.${scopeKey}.containers.${cKey}.resources.limits.memory ]]` : undefined
+                                    },
+                                    requests: {
+                                        cpu: c.resources.requests?.cpu ? `[[ .Values.${scopeKey}.containers.${cKey}.resources.requests.cpu ]]` : undefined,
+                                        memory: c.resources.requests?.memory ? `[[ .Values.${scopeKey}.containers.${cKey}.resources.requests.memory ]]` : undefined
+                                    }
+                                };
+                                if (c.resources.limits && !c.resources.limits.cpu && !c.resources.limits.memory) delete c.resources.limits;
+                                if (c.resources.requests && !c.resources.requests.cpu && !c.resources.requests.memory) delete c.resources.requests;
+                            }
+                        });
+                    }
+                }
+            }
+
+            if (kind === 'Service') {
+                if (!values[scopeKey]) values[scopeKey] = {};
+                if (doc.spec) {
+                    values[scopeKey].type = doc.spec.type || 'ClusterIP';
+                    doc.spec.type = `[[ .Values.${scopeKey}.type ]]`;
+                    
+                    if (doc.spec.ports) {
+                        values[scopeKey].ports = JSON.parse(JSON.stringify(doc.spec.ports));
+                        doc.spec.ports = doc.spec.ports.map((p, pIdx) => {
+                            return {
+                                ...p,
+                                port: `[[ (index .Values.${scopeKey}.ports ${pIdx}).port ]]`,
+                                targetPort: p.targetPort ? `[[ (index .Values.${scopeKey}.ports ${pIdx}).targetPort ]]` : undefined
+                            };
+                        });
+                    }
+                }
+            }
+
+            if (kind === 'Ingress') {
+                if (!values[scopeKey]) values[scopeKey] = {};
+                if (doc.spec && doc.spec.rules) {
+                    values[scopeKey].rules = [];
+                    doc.spec.rules.forEach((rule, rIdx) => {
+                        let ruleValue = {};
+                        if (rule.host) {
+                            ruleValue.host = rule.host;
+                            rule.host = `[[ (index .Values.${scopeKey}.rules ${rIdx}).host ]]`;
+                        }
+                        if (rule.http?.paths) {
+                            ruleValue.paths = rule.http.paths.map(p => ({ path: p.path, pathType: p.pathType }));
+                            rule.http.paths.forEach((p, pIdx) => {
+                                p.path = `[[ (index (index .Values.${scopeKey}.rules ${rIdx}).paths ${pIdx}).path ]]`;
+                            });
+                        }
+                        values[scopeKey].rules.push(ruleValue);
+                    });
+                }
+            }
+
+            if (kind === 'HorizontalPodAutoscaler') {
+                if (!values[scopeKey]) values[scopeKey] = {};
+                if (doc.spec) {
+                    values[scopeKey].minReplicas = doc.spec.minReplicas || 1;
+                    values[scopeKey].maxReplicas = doc.spec.maxReplicas || 10;
+                    doc.spec.minReplicas = `[[ .Values.${scopeKey}.minReplicas ]]`;
+                    doc.spec.maxReplicas = `[[ .Values.${scopeKey}.maxReplicas ]]`;
+                }
+            }
+
+            if (kind === 'PersistentVolumeClaim') {
+                if (!values[scopeKey]) values[scopeKey] = {};
+                if (doc.spec && doc.spec.resources?.requests?.storage) {
+                    values[scopeKey].storageSize = doc.spec.resources.requests.storage;
+                    doc.spec.resources.requests.storage = `[[ .Values.${scopeKey}.storageSize ]]`;
+                }
+            }
+        }
+
+        function postProcessTemplateBindings(yamlString) {
+            return yamlString
+                .replace(/['"]\[\[\s*/g, '{{ ')
+                .replace(/\s*\]\]['"]/g, ' }}')
+                .replace(/\[\[\s*/g, '{{ ')
+                .replace(/\s*\]\]/g, ' }}');
+        }
+
+        function optimizeEnvironmentOverrides(valuesObj, env, tier) {
+            valuesObj.global.environment = env;
+            Object.keys(valuesObj).forEach(key => {
+                if (key === 'global') return;
+                const profile = valuesObj[key];
+                if (profile.replicaCount !== undefined) {
+                    profile.replicaCount = Math.max(1, tier);
+                }
+                if (profile.containers) {
+                    Object.keys(profile.containers).forEach(cKey => {
+                        const c = profile.containers[cKey];
+                        if (c.resources) {
+                            if (tier === 1) {
+                                c.resources.limits = { cpu: "200m", memory: "256Mi" };
+                                c.resources.requests = { cpu: "100m", memory: "128Mi" };
+                            } else if (tier === 3) {
+                                c.resources.limits = { cpu: "1000m", memory: "1Gi" };
+                                c.resources.requests = { cpu: "500m", memory: "512Mi" };
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
+        function runTelemetryValidationRules(manifests) {
+            const diagnostics = [];
+            const labelsMap = {};
+            const serviceSelectors = [];
+            
+            manifests.forEach((doc, idx) => {
+                const kind = doc.kind;
+                const name = doc.metadata?.name || `unnamed-${idx}`;
+                
+                if (doc.metadata?.labels) {
+                    labelsMap[kind + '/' + name] = doc.metadata.labels;
+                }
+
+                if (kind === 'Deployment' || kind === 'StatefulSet') {
+                    const containers = doc.spec?.template?.spec?.containers || [];
+                    if (!containers.length) {
+                        diagnostics.push({
+                            type: 'error',
+                            message: `Entity architecture [${kind}/${name}] must define target logical container parameters.`,
+                            rule: 'K8S-CONTAINER-MISSING'
+                        });
+                    }
+
+                    containers.forEach(c => {
+                        if (!c.livenessProbe || !c.readinessProbe) {
+                            diagnostics.push({
+                                type: 'warning',
+                                message: `Runtime wrapper [${c.name || 'unnamed'}] inside [${kind}/${name}] lacks core state health probes.`,
+                                rule: 'HELM-PROBE-ABSENT'
+                            });
+                        }
+                        if (!c.resources || !c.resources.limits || !c.resources.requests) {
+                            diagnostics.push({
+                                type: 'warning',
+                                message: `Container [${c.name || 'unnamed'}] inside [${kind}/${name}] has unbounded deployment boundaries.`,
+                                rule: 'K8S-RESOURCE-UNBOUNDED'
+                            });
+                        }
+                    });
+                }
+
+                if (kind === 'Service') {
+                    if (doc.spec?.selector) {
+                        serviceSelectors.push({ name, selector: doc.spec.selector });
+                    } else {
+                        diagnostics.push({
+                            type: 'error',
+                            message: `Service matrix structure [${name}] configuration framework missing context selector maps.`,
+                            rule: 'K8S-SERVICE-SELECTOR-MISSING'
+                        });
+                    }
+                }
+            });
+
+            serviceSelectors.forEach(srv => {
+                let foundMatch = false;
+                Object.keys(labelsMap).forEach(key => {
+                    if (key.startsWith('Deployment/') || key.startsWith('StatefulSet/')) {
+                        const labels = labelsMap[key];
+                        let matchedAll = true;
+                        Object.keys(srv.selector).forEach(sk => {
+                            if (labels[sk] !== srv.selector[sk]) matchedAll = false;
+                        });
+                        if (matchedAll) foundMatch = true;
+                    }
+                });
+
+                if (!foundMatch && Object.keys(labelsMap).length > 0) {
+                    diagnostics.push({
+                        type: 'error',
+                        message: `Service selector pattern [${srv.name}] fails to match active node signature profiles.`,
+                        rule: 'HELM-ORPHANED-SERVICE'
+                    });
+                }
+            });
+
+            return diagnostics;
+        }
+
+        function calculatePerformanceMetrics(diagnostics, values) {
+            const errs = diagnostics.filter(d => d.type === 'error').length;
+            const warns = diagnostics.filter(d => d.type === 'warning').length;
+            
+            State.metrics.manifests = State.uploadedFilesRaw.length;
+            State.metrics.resources = State.parsedManifests.length;
+            State.metrics.templates = Object.keys(State.generatedChart).length - 1; 
+            State.metrics.alerts = diagnostics.length;
+
+            let baseQuality = 100 - (errs * 15) - (warns * 5);
+            baseQuality = Math.max(10, Math.min(100, baseQuality));
+            
+            let paramScore = Object.keys(values).length > 2 ? 95 : 50;
+            let maintainScore = baseQuality >= 80 ? 92 : 70;
+            let readinessScore = (baseQuality + paramScore + maintainScore) / 3;
+
+            State.metrics.score = Math.round(readinessScore);
+
+            DOM.metricManifests.innerText = State.metrics.manifests;
+            DOM.metricResources.innerText = State.metrics.resources;
+            DOM.metricTemplates.innerText = State.metrics.templates;
+            DOM.metricAlerts.innerText = State.metrics.alerts;
+            DOM.metricScore.innerText = `${State.metrics.score}%`;
+
+            DOM.scoreQuality.innerText = `${baseQuality}%`;
+            DOM.scoreParam.innerText = `${paramScore}%`;
+            DOM.scoreMaintain.innerText = `${maintainScore}%`;
+            DOM.scoreReadiness.innerText = `${State.metrics.score}%`;
+            
+            adjustTelemetryColoring(DOM.metricScore, State.metrics.score);
+            adjustTelemetryColoring(DOM.scoreReadiness, State.metrics.score);
+        }
+
+        function adjustTelemetryColoring(element, score) {
+            element.className = "text-sm font-bold ";
+            if (score >= 85) element.classList.add("text-emerald-400");
+            else if (score >= 60) element.classList.add("text-amber-400");
+            else element.classList.add("text-rose-400");
+        }
+
+        function renderFileTree() {
+            const keys = Object.keys(State.generatedChart);
+            if (keys.length <= 1) return;
+
+            const searchFilter = DOM.explorerSearch.value.trim().toLowerCase();
+            let treeHtml = `<div class="font-semibold text-main mb-1.5 flex items-center space-x-2 pl-1"><i class="fa-solid fa-folder-tree text-indigo-400 text-xs"></i> <span class="tracking-tight">helm-chart/</span></div>`;
+            treeHtml += `<div class="pl-2 space-y-0.5">`;
+
+            const sortedKeys = keys.filter(k => k !== 'original-yaml').sort((a, b) => {
+                if (a.startsWith('templates/') && !b.startsWith('templates/')) return 1;
+                if (!a.startsWith('templates/') && b.startsWith('templates/')) return -1;
+                return a.localeCompare(b);
+            });
+
+            let trackingTemplateFolderRender = false;
+
+            sortedKeys.forEach(path => {
+                if (searchFilter && !path.toLowerCase().includes(searchFilter)) return;
+                const isActive = State.activeFilePath === path ? 'bg-indigo-600 bg-opacity-10 border-l-2 border-indigo-500 font-medium text-indigo-400' : 'hover:bg-black hover:bg-opacity-5 text-muted hover:text-main';
+                
+                if (path.startsWith('templates/')) {
+                    if (!trackingTemplateFolderRender) {
+                        treeHtml += `<div class="font-semibold text-main my-1.5 flex items-center space-x-2 pl-3"><i class="fa-solid fa-folder text-amber-500 text-xs"></i> <span class="tracking-tight">templates/</span></div>`;
+                        trackingTemplateFolderRender = true;
+                    }
+                    const filename = path.replace('templates/', '');
+                    treeHtml += `
+                        <div class="pl-7 pr-2 py-1 rounded-md cursor-pointer flex items-center justify-between transition-all ${isActive}" data-file-path="${path}" onclick="switchActiveWorkspaceFile('${path}')">
+                            <span class="truncate"><i class="fa-solid fa-file-lines text-sky-400 opacity-80 mr-2"></i>${filename}</span>
+                        </div>`;
+                } else {
+                    let iconClass = "fa-file-code text-purple-400";
+                    if (path === 'README.md') iconClass = "fa-file-markdown text-emerald-400";
+                    if (path.includes('values')) iconClass = "fa-sliders text-amber-500";
+
+                    treeHtml += `
+                        <div class="pl-3 pr-2 py-1 rounded-md cursor-pointer flex items-center justify-between transition-all ${isActive}" data-file-path="${path}" onclick="switchActiveWorkspaceFile('${path}')">
+                            <span class="truncate"><i class="fa-solid ${iconClass} opacity-80 mr-2"></i>${path}</span>
+                        </div>`;
+                }
+            });
+
+            treeHtml += `</div>`;
+            DOM.fileTreeContainer.innerHTML = treeHtml;
+        }
+
+        function updateWorkspaceTabs() {
+            const baseTabs = [
+                { path: 'original-yaml', label: 'Original Source', icon: 'fa-file-code text-indigo-400' }
+            ];
+
+            if (State.activeFilePath && State.activeFilePath !== 'original-yaml') {
+                let iconClass = "fa-file-lines text-sky-400";
+                if (State.activeFilePath.includes('values')) iconClass = "fa-sliders text-amber-500";
+                if (State.activeFilePath === 'README.md') iconClass = "fa-file-markdown text-emerald-400";
+                if (State.activeFilePath === 'Chart.yaml') iconClass = "fa-file-shield text-purple-400";
+
+                baseTabs.push({
+                    path: State.activeFilePath,
+                    label: State.activeFilePath.replace('templates/', ''),
+                    icon: iconClass
+                });
+            }
+
+            DOM.tabCarousel.innerHTML = baseTabs.map(tab => {
+                const isActive = State.activeFilePath === tab.path ? 'active-tab text-indigo-400 font-medium bg-black bg-opacity-10' : 'text-muted hover:text-main';
+                return `
+                    <button class="workspace-tab px-4 h-full flex items-center space-x-2 text-2xs tracking-tight outline-none focus:outline-none transition-all ${isActive}" data-tab="${tab.path}" onclick="switchActiveWorkspaceFile('${tab.path}')">
+                        <i class="fa-solid ${tab.icon} text-xs"></i>
+                        <span>${tab.label}</span>
+                    </button>
+                `;
+            }).join('');
+        }
+
+        function switchActiveWorkspaceFile(path) {
+            if (!State.generatedChart[path]) return;
+            State.activeFilePath = path;
+            
+            updateWorkspaceTabs();
+            renderFileTree();
+            renderCurrentWorkspaceCode();
+            
+            DOM.codeSearchBar.classList.add('hidden');
+            State.searchMatches = [];
+        }
+
+        function renderCurrentWorkspaceCode() {
+            const rawContent = State.generatedChart[State.activeFilePath] || "";
+            let targetLanguage = 'yaml';
+            if (State.activeFilePath === 'README.md') targetLanguage = 'markdown';
+            
+            const highlightedHtml = Prism.highlight(rawContent, Prism.languages[targetLanguage] || Prism.languages.yaml, targetLanguage);
+            
+            const lines = highlightedHtml.split('\n');
+            const formattedLines = lines.map((line, idx) => {
+                return `<div class="line-wrapper flex w-full" data-line="${idx + 1}"><span class="line-number text-right pr-3 font-mono bg-black bg-opacity-5 select-none">${idx + 1}</span><span class="line-content pl-3 flex-grow whitespace-pre font-mono">${line || ' '}</span></div>`;
+            }).join('');
+
+            DOM.codeRenderer.innerHTML = formattedLines;
+        }
+
+        function renderDiagnosticsConsole(findings) {
+            DOM.countErr.innerText = findings.filter(f => f.type === 'error').length;
+            DOM.countWarn.innerText = findings.filter(f => f.type === 'warning').length;
+
+            const targetCollection = findings.filter(f => {
+                if (State.filteredFindings === 'errors') return f.type === 'error';
+                if (State.filteredFindings === 'warnings') return f.type === 'warning';
+                return true;
+            });
+
+            if (!targetCollection.length) {
+                DOM.diagnosticFindingsList.innerHTML = `
+                    <div class="text-muted text-center py-10 text-2xs flex flex-col items-center justify-center h-full space-y-2">
+                        <i class="fa-solid fa-circle-check text-2xl text-emerald-400 opacity-40"></i>
+                        <p class="opacity-80">Compliant structure with blueprint parameters.</p>
+                    </div>`;
+                return;
+            }
+
+            DOM.diagnosticFindingsList.innerHTML = targetCollection.map(f => {
+                const borderAccent = f.type === 'error' ? 'border-rose-500 border-opacity-30 bg-rose-500 bg-opacity-5' : 'border-amber-500 border-opacity-30 bg-amber-500 bg-opacity-5';
+                const iconType = f.type === 'error' ? 'fa-circle-exclamation text-rose-400' : 'fa-triangle-exclamation text-amber-400';
+                
+                return `
+                    <div class="p-3 border rounded-xl text-2xs flex items-start space-x-2.5 transition-all ${borderAccent}">
+                        <i class="fa-solid ${iconType} mt-0.5 text-sm flex-shrink-0"></i>
+                        <div class="space-y-0.5">
+                            <div class="font-semibold tracking-wider uppercase text-3xs text-muted font-mono">${f.rule}</div>
+                            <p class="text-main opacity-90 leading-relaxed font-medium">${f.message}</p>
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        function executeWorkspaceTextContentSearch() {
+            document.querySelectorAll('.line-wrapper').forEach(el => el.classList.remove('bg-yellow-500', 'bg-opacity-10', 'bg-yellow-500', 'bg-opacity-20'));
+            
+            const query = DOM.codeSearchInput.value.trim().toLowerCase();
+            if (!query) {
+                DOM.codeSearchCount.innerText = "0/0";
+                State.searchMatches = [];
+                return;
+            }
+
+            const rawContent = State.generatedChart[State.activeFilePath] || "";
+            const lines = rawContent.split('\n');
+            
+            let matches = [];
+            lines.forEach((line, idx) => {
+                if (line.toLowerCase().includes(query)) {
+                    matches.push({ lineIndex: idx + 1 });
+                }
+            });
+
+            State.searchMatches = matches;
+            if (matches.length > 0) {
+                State.currentMatchIndex = 0;
+                DOM.codeSearchCount.innerText = `1/${matches.length}`;
+                highlightActiveWorkspaceSearchInstance();
+            } else {
+                State.currentMatchIndex = -1;
+                DOM.codeSearchCount.innerText = "0/0";
+            }
+        }
+
+        function navigateTextMatchSequence(direction) {
+            if (!State.searchMatches.length) return;
+            
+            State.currentMatchIndex += direction;
+            if (State.currentMatchIndex >= State.searchMatches.length) State.currentMatchIndex = 0;
+            if (State.currentMatchIndex < 0) State.currentMatchIndex = State.searchMatches.length - 1;
+
+            DOM.codeSearchCount.innerText = `${State.currentMatchIndex + 1}/${State.searchMatches.length}`;
+            highlightActiveWorkspaceSearchInstance();
+        }
+
+        function highlightActiveWorkspaceSearchInstance() {
+            document.querySelectorAll('.line-wrapper').forEach(el => el.classList.remove('bg-yellow-500', 'bg-opacity-20'));
+            
+            State.searchMatches.forEach((match) => {
+                const el = document.querySelector(`.line-wrapper[data-line="${match.lineIndex}"]`);
+                if (el) el.classList.add('bg-yellow-500', 'bg-opacity-10');
+            });
+
+            const currentMatch = State.searchMatches[State.currentMatchIndex];
+            if (!currentMatch) return;
+            
+            const lineEl = document.querySelector(`.line-wrapper[data-line="${currentMatch.lineIndex}"]`);
+            if (lineEl) {
+                lineEl.classList.remove('bg-yellow-500', 'bg-opacity-10');
+                lineEl.classList.add('bg-yellow-500', 'bg-opacity-20');
+                lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        function registerEventHandlers() {
+            DOM.btnCopyCode.addEventListener('click', () => {
+                const rawContent = State.generatedChart[State.activeFilePath] || "";
+                navigator.clipboard.writeText(rawContent).then(() => {
+                    showToast("Code copied to clipboard.");
+                }).catch(() => {
+                    showToast("Failed mirroring tracking data snapshots.", "error");
+                });
+            });
+
+            DOM.btnFullscreen.addEventListener('click', () => {
+                const targetArea = document.getElementById('editor-view-pane');
+                if (!document.fullscreenElement) {
+                    targetArea.requestFullscreen().then(() => {
+                        DOM.btnFullscreen.innerHTML = `<i class="fa-solid fa-compress text-2xs"></i>`;
+                    });
+                } else {
+                    document.exitFullscreen();
+                    DOM.btnFullscreen.innerHTML = `<i class="fa-solid fa-expand text-2xs"></i>`;
+                }
+            });
+
+            document.addEventListener('fullscreenchange', () => {
+                if (!document.fullscreenElement) {
+                    DOM.btnFullscreen.innerHTML = `<i class="fa-solid fa-expand text-2xs"></i>`;
+                }
+            });
+
+            DOM.filterAll.addEventListener('click', () => toggleDiagnosticCategoryFilter('all', DOM.filterAll));
+            DOM.filterErrors.addEventListener('click', () => toggleDiagnosticCategoryFilter('errors', DOM.filterErrors));
+            DOM.filterWarns.addEventListener('click', () => toggleDiagnosticCategoryFilter('warnings', DOM.filterWarns));
+
+            function toggleDiagnosticCategoryFilter(category, buttonNode) {
+                State.filteredFindings = category;
+                [DOM.filterAll, DOM.filterErrors, DOM.filterWarns].forEach(b => {
+                    b.className = "px-2.5 py-1 rounded-md bg-gray-700 bg-opacity-20 text-muted hover:bg-opacity-40 transition-all";
+                });
+                buttonNode.className = "px-2.5 py-1 rounded-md bg-indigo-600 text-white shadow-sm transition-all";
+                renderDiagnosticsConsole(runTelemetryValidationRules(State.parsedManifests));
+            }
+
+            DOM.explorerSearch.addEventListener('input', () => {
+                renderFileTree();
+            });
+
+            DOM.btnCollapseExplorer.addEventListener('click', () => {
+                State.uploadedFilesRaw = [];
+                State.parsedManifests = [];
+                State.generatedChart = {};
+                State.activeFilePath = 'original-yaml';
+                DOM.explorerSearch.value = "";
+                DOM.fileTreeContainer.innerHTML = `
+                    <div class="text-muted p-6 text-center flex flex-col items-center justify-center h-full space-y-3">
+                        <i class="fa-solid fa-folder-open text-2xl opacity-20 text-indigo-400"></i>
+                        <div class="space-y-0.5">
+                            <p class="text-xs font-medium text-main">Workspace is Empty</p>
+                            <p class="text-3xs opacity-80 max-w-[15rem] mx-auto">Upload valid Kubernetes configuration manifests to output production Helm charts.</p>
+                        </div>
+                    </div>`;
+                DOM.tabCarousel.innerHTML = `
+                    <button class="workspace-tab active-tab px-4 h-full flex items-center space-x-2 text-2xs font-medium text-main bg-black bg-opacity-10" data-tab="original-yaml">
+                        <i class="fa-solid fa-file-code text-indigo-400 text-xs"></i>
+                        <span>Original Input Source</span>
+                    </button>`;
+                DOM.codeRenderer.innerHTML = `
+                    <div class="line-wrapper flex w-full"><span class="line-number text-right pr-3 font-mono bg-black bg-opacity-5 select-none">1</span><span class="line-content pl-3 text-gray-500 font-mono"># Welcome to the Kubernetes YAML to Helm Chart Generator Workspace.</span></div><div class="line-wrapper flex w-full"><span class="line-number text-right pr-3 font-mono bg-black bg-opacity-5 select-none">2</span><span class="line-content pl-3 text-gray-500 font-mono"># Import infrastructure manifests using the left container panel to initialize architecture mapping rules.</span></div>`;
+                DOM.diagnosticFindingsList.innerHTML = `
+                    <div class="text-muted text-center py-10 text-2xs flex flex-col items-center justify-center h-full space-y-2">
+                        <i class="fa-solid fa-shield-halved text-2xl opacity-20 text-indigo-400"></i>
+                        <p class="opacity-80">No active system violations found matching baseline profiles.</p>
+                    </div>`;
+                
+                DOM.metricManifests.innerText = "0";
+                DOM.metricResources.innerText = "0";
+                DOM.metricTemplates.innerText = "0";
+                DOM.metricAlerts.innerText = "0";
+                DOM.metricScore.innerText = "0%";
+                DOM.scoreQuality.innerText = "--";
+                DOM.scoreParam.innerText = "--";
+                DOM.scoreMaintain.innerText = "--";
+                DOM.scoreReadiness.innerText = "--";
+                DOM.btnExportZip.disabled = true;
+                DOM.btnExportZip.classList.add('opacity-40', 'cursor-not-allowed');
+                showToast("Workspace wiped clean.");
+            });
+
+            DOM.btnRefreshExplorer.addEventListener('click', () => {
+                if (State.parsedManifests.length > 0) {
+                    executeHelmGenerationEngine();
+                    showToast("Workspace components rebuilt.");
+                }
+            });
+
+            DOM.btnSearchCode.addEventListener('click', () => {
+                DOM.codeSearchBar.classList.toggle('hidden');
+                if (!DOM.codeSearchBar.classList.contains('hidden')) {
+                    DOM.codeSearchInput.focus();
+                }
+            });
+
+            DOM.btnCodeSearchClose.addEventListener('click', () => {
+                DOM.codeSearchBar.classList.add('hidden');
+                document.querySelectorAll('.line-wrapper').forEach(el => el.classList.remove('bg-yellow-500', 'bg-opacity-10', 'bg-yellow-500', 'bg-opacity-20'));
+                State.searchMatches = [];
+            });
+
+            DOM.codeSearchInput.addEventListener('input', executeWorkspaceTextContentSearch);
+            DOM.btnCodeSearchNext.addEventListener('click', () => navigateTextMatchSequence(1));
+            DOM.btnCodeSearchPrev.addEventListener('click', () => navigateTextMatchSequence(-1));
+
+            DOM.btnExportZip.addEventListener('click', () => {
+                if (Object.keys(State.generatedChart).length <= 1) return;
+                
+                const zip = new JSZip();
+                let rootDirName = "enterprise-application";
+                
+                try {
+                    const parsedChart = jsyaml.load(State.generatedChart['Chart.yaml']);
+                    if (parsedChart && parsedChart.name) rootDirName = parsedChart.name;
+                } catch(e) {}
+
+                const folder = zip.folder(rootDirName);
+                Object.keys(State.generatedChart).forEach(path => {
+                    if (path === 'original-yaml') return;
+                    folder.file(path, State.generatedChart[path]);
+                });
+
+                zip.generateAsync({ type: "blob" }).then((content) => {
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(content);
+                    link.download = `${rootDirName}-helm-bundle.zip`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    showToast("Helm chart distribution package downloaded successfully.");
+                });
+            });
+        }
+    </script>
+</body>
+</html>
